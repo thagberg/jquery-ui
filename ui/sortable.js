@@ -381,36 +381,17 @@ return $.widget("ui.sortable", $.ui.mouse, {
 			item = this.items[i];
 			itemElement = item.item[0];
 			intersection = this._intersectsWithPointer(item);
-			if (!intersection) {
-				continue;
-			}
-
-			// Only put the placeholder inside the current Container, skip all
-			// items from other containers. This works because when moving
-			// an item from one container to another the
-			// currentContainer is switched before the placeholder is moved.
-			//
-			// Without this, moving items in "sub-sortables" can cause
-			// the placeholder to jitter beetween the outer and inner container.
-			if (item.instance !== this.currentContainer) {
-				continue;
-			}
 
 			// cannot intersect with itself
-			// no useless actions that have been done before
-			// no action if the item moved is the parent of the item checked
-			if (itemElement !== this.currentItem[0] &&
-				this.placeholder[intersection === 1 ? "next" : "prev"]()[0] !== itemElement &&
-				!$.contains(this.placeholder[0], itemElement) &&
-				(this.options.type === "semi-dynamic" ? !$.contains(this.element[0], itemElement) : true)
-			) {
+            if (itemElement !== this.currentItem[0]) {
 
-				this.direction = intersection === 1 ? "down" : "up";
+                var collision = this._intersectsWithSides(item);
+                this.direction = collision == 2 ? "down" : "up";
 
-				if (this.options.tolerance === "pointer" || this._intersectsWithSides(item)) {
+				if (this.options.tolerance === "pointer" || collision) {
 					this._rearrange(event, item);
 				} else {
-					break;
+                    continue;
 				}
 
 				this._trigger("change", event, this._uiHash());
@@ -603,18 +584,59 @@ return $.widget("ui.sortable", $.ui.mouse, {
 	},
 
 	_intersectsWithSides: function(item) {
+        /* simple separating axis theorem-like collision detection between
+           two AABB items
+        */
+        var retVal;
+        var thisBox = {
+            x: this.positionAbs.left + parseInt(this.currentItem.css("paddingLeft")),
+            y: this.positionAbs.top + parseInt(this.currentItem.css("paddingTop")),
+            w: this.currentItem.width() - parseInt(this.currentItem.css("paddingRight")),
+            h: this.currentItem.height() - parseInt(this.currentItem.css("paddingBottom"))
+        };
+        var thatBox = {
+            x: item.left + parseInt(item.item.css("paddingLeft")),
+            y: item.top + parseInt(item.item.css("paddingTop")),
+            w: item.width - (parseInt(item.item.css("paddingRight")) + parseInt(item.item.css("paddingLeft"))),
+            h: item.height - (parseInt(item.item.css("paddingBottom") + parseInt(item.item.css("paddingTop"))))
+        };
 
-		var isOverBottomHalf = this._isOverAxis(this.positionAbs.top + this.offset.click.top, item.top + (item.height/2), item.height),
-			isOverRightHalf = this._isOverAxis(this.positionAbs.left + this.offset.click.left, item.left + (item.width/2), item.width),
-			verticalDirection = this._getDragVerticalDirection(),
-			horizontalDirection = this._getDragHorizontalDirection();
+        // get the movement direction (left | right & up | down)
+        var vertDirection = this._getDragVerticalDirection();
+        var horizDirection = this._getDragHorizontalDirection();
 
-		if (this.floating && horizontalDirection) {
-			return ((horizontalDirection === "right" && isOverRightHalf) || (horizontalDirection === "left" && !isOverRightHalf));
-		} else {
-			return verticalDirection && ((verticalDirection === "down" && isOverBottomHalf) || (verticalDirection === "up" && !isOverBottomHalf));
-		}
+        // determine whether collisions are possible on each direction
+        // direction is important because it determines whether the placeholder
+        // option should be inserted before or after the colliding item
+        // additionally, respecting direction prevents superfluous collisions
+        // from being reported, such as from continuing to drag an object
+        // over an item which has already had its position resolved from a previous collision
+        var leftPossible = thisBox.x > thatBox.x &&
+                           thisBox.x < thatBox.x + thatBox.w &&
+                           horizDirection != "right";
+        var rightPossible = thisBox.x + thisBox.w > thatBox.x &&
+                            thisBox.x + thisBox.w < thatBox.x + thatBox.w &&
+                            horizDirection != "left";
+        var horizContains = (thisBox.x == thatBox.x && thisBox.x + thisBox.w == thatBox.x + thatBox.w) ||
+                            (thisBox.x <= thatBox.x && thisBox.x + thisBox.w >= thatBox.x + thatBox.w);
+        var upPossible = thisBox.y > thatBox.y &&
+                         thisBox.y < thatBox.y + thatBox.h &&
+                         vertDirection != "down";
+        var downPossible = thisBox.y + thisBox.h > thatBox.y &&
+                           thisBox.y + thisBox.h < thatBox.y + thatBox.h &&
+                           vertDirection != "up";
+        var vertContains = (thisBox.y == thatBox.y && thisBox.y + thisBox.h == thatBox.y + thatBox.h) ||
+                           (thisBox.y <= thatBox.y && thisBox.y + thisBox.h >= thatBox.y + thatBox.h);
 
+        // if a horizontal collision is possible and a vertical collision
+        // is possible, then we have a collision
+        retVal = (leftPossible || rightPossible || horizContains) &&
+                 (upPossible || downPossible || vertContains)
+        // if moving up or left, the placeholder should be inserted before
+        // the colliding item
+        retVal = retVal ? (upPossible || leftPossible ? 2 : 1) : 0;
+
+        return retVal;
 	},
 
 	_getDragVerticalDirection: function() {
@@ -813,8 +835,18 @@ return $.widget("ui.sortable", $.ui.mouse, {
 					}
 
 					//If the element doesn't have a actual height by itself (without styles coming from a stylesheet), it receives the inline height from the dragged item
-					if(!p.height()) { p.height(that.currentItem.innerHeight() - parseInt(that.currentItem.css("paddingTop")||0, 10) - parseInt(that.currentItem.css("paddingBottom")||0, 10)); }
-					if(!p.width()) { p.width(that.currentItem.innerWidth() - parseInt(that.currentItem.css("paddingLeft")||0, 10) - parseInt(that.currentItem.css("paddingRight")||0, 10)); }
+					if(!p.height()) { 
+                        p.height(that.currentItem.innerHeight() - 
+                                 parseInt(that.currentItem.css("paddingTop")||0, 10) - 
+                                 parseInt(that.currentItem.css("paddingBottom")||0, 10)
+                        ); 
+                    }
+					if(!p.width()) { 
+                        p.width(that.currentItem.innerWidth() - 
+                                parseInt(that.currentItem.css("paddingLeft")||0, 10) - 
+                                parseInt(that.currentItem.css("paddingRight")||0, 10)
+                        ); 
+                    }
 				}
 			};
 		}
