@@ -52,6 +52,7 @@ return $.widget("ui.sortable", $.ui.mouse, {
 		scope: "default",
 		tolerance: "intersect",
 		zIndex: 1000,
+        debug: false,
 
 		// callbacks
 		activate: null,
@@ -362,6 +363,16 @@ return $.widget("ui.sortable", $.ui.mouse, {
 				$.ui.ddmanager.prepareOffsets(this, event);
 			}
 		}
+
+        // if in debug mode, activate debug class,
+        // which will allow for drawing borders or other
+        // visualizations to easily distinguish collideable objects
+        if (this.options.debug) {
+            for (i = 0; i < this.items.length; i++) {
+                var thisItem = this.items[0].item;
+                thisItem.addClass("debug");
+            }
+        }
 
 		//Regenerate the absolute position used for position checks
 		this.positionAbs = this._convertPositionTo("absolute");
